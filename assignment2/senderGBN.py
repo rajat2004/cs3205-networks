@@ -4,14 +4,16 @@ import socket
 import sys
 import argparse
 
+from packet import *
+
 parser = argparse.ArgumentParser(description="Sender script for Go Back N protocol")
 
 # TODO: Add arguments required 
 
 
-port = 60000
-ip = "127.0.0.1"
-addr = (ip, port)
+receiver_port = 60000
+receiver_ip = "127.0.0.1"
+addr = (receiver_ip, receiver_port)
 
 packet_length = 1024 # bytes
 
@@ -20,8 +22,9 @@ try:
 except socket.error as err:
     print("Socket creation error %s" %(err))
 
-sequence_no = 1
-message = str(sequence_no).ljust(packet_length)
+sequence_no = 100
+packet = Packet(packet_length)
+message = packet.create(sequence_no)
 
 # message = "Hello World".encode()
-s.sendto(bytes(message, "utf-8"), addr)
+s.sendto(message, addr)

@@ -4,12 +4,14 @@ import socket
 import sys
 import argparse
 
+from packet import *
+
 parser = argparse.ArgumentParser(description="Receiver script for Go Back N protocol")
 
 # TODO: Add arguments required 
 
 
-port = 60000
+receiver_port = 60000
 packet_length = 1024 # bytes
 
 try:
@@ -17,11 +19,11 @@ try:
 except socket.error as err:
     print("Socket creation error %s" %(err))
 
-host = socket.gethostname()
-print("Host- " + host)
 
-recv_socket.bind(('', port))
-print("Socket bound to port %d" %(port))
+recv_socket.bind(('', receiver_port))
+print("Socket bound to port %d" %(receiver_port))
+
+packet = Packet(packet_length)
 
 message, address = recv_socket.recvfrom(packet_length)
-print(message.decode())
+print(packet.extract(message))
