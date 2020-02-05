@@ -3,6 +3,7 @@
 import socket
 import sys
 import argparse
+import random
 
 from packet import *
 
@@ -14,6 +15,8 @@ parser = argparse.ArgumentParser(description="Receiver script for Go Back N prot
 receiver_port = 60000
 packet_length = 1024 # bytes
 
+random_drop_prob = 0.1 # Probabilty of packet being corrupted
+
 try:
     recv_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 except socket.error as err:
@@ -23,7 +26,32 @@ except socket.error as err:
 recv_socket.bind(('', receiver_port))
 print("Socket bound to port %d" %(receiver_port))
 
-packet = Packet(packet_length)
+pckt = Packet(packet_length)
 
-message, address = recv_socket.recvfrom(packet_length)
-print(packet.extract(message))
+expected_num = 0 # Sequence no. of expected packet
+
+while True:
+    message, address = recv_socket.recvfrom(packet_length)
+    
+    if(random.random() <= random_drop_prob):
+        # Packet is corrupted
+        print("Dropping packet ", pckt.extract(message))
+        continue
+    
+    seq_num = pckt.extract(message)
+    print("Received pckt: ", seq_num)
+
+    if (seq_num == expected_num):
+        print("Got expected packet, sending ACK ", expected_num)
+        pkt = pckt.create(expected_num)
+        recv_socket.sendto(pkt, address)
+        expected_num += 1
+    else:
+        print("Unexpected packet, sending ACK ", expected_num-1)
+        pkt = pckt.create(expected_num-1)
+        recv_socket.sendto(pkt, address)
+
+
+
+# message, address = recv_socket.recvfrom(packet_length)
+# print(pckt.extract(message))
