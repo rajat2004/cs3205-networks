@@ -9,6 +9,7 @@ from datetime import datetime
 from datetime import timedelta
 
 from packet import *
+from timer import *
 
 parser = argparse.ArgumentParser(description="Receiver script for Go Back N protocol")
 
@@ -38,11 +39,6 @@ expected_num = 0 # Sequence no. of expected packet
 start_time = datetime.now()
 
 
-def millis(dt_now):
-    dt = dt_now - start_time
-    ms = (dt.days * 24 * 60 * 60 + dt.seconds) * 1000 + dt.microseconds / 1000.0
-    return ms
-
 
 while True:
     message, address = recv_socket.recvfrom(packet_length)
@@ -57,17 +53,17 @@ while True:
 
     if debug:
         dt_now = datetime.now()
-        print("Seq %d: Time Received: %d:%d   Packet Dropped: false" % (seq_num, millis(dt_now), dt_now.microsecond%1000))
+        print("Seq %d: Time Received: %d:%d   Packet Dropped: false" % (seq_num, millis(dt_now, start_time), dt_now.microsecond%1000))
 
     if (seq_num == expected_num):
         print("Got expected packet, sending ACK ", expected_num)
         pkt = pckt.create(expected_num)
         recv_socket.sendto(pkt, address)
         expected_num += 1
-    else:
-        print("Unexpected packet, sending ACK ", expected_num-1)
-        pkt = pckt.create(expected_num-1)
-        recv_socket.sendto(pkt, address)
+    # else:
+    #     print("Unexpected packet, sending ACK ", expected_num-1)
+    #     pkt = pckt.create(expected_num-1)
+    #     recv_socket.sendto(pkt, address)
 
 
 

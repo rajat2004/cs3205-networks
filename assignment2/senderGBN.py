@@ -8,6 +8,7 @@ import sched, time
 import threading
 
 from packet import *
+from timer import *
 
 parser = argparse.ArgumentParser(description="Sender script for Go Back N protocol")
 
@@ -38,6 +39,14 @@ pckt = Packet(packet_length)
 
 # Lock for accessing packets_buffer and related variables
 lock = threading.Lock()
+
+# Timers for apckets being sent
+send_timers = {}
+# For first 10 packets, duration is 100ms
+for i in range(1, 11):
+    send_timers[i] = Timer(100)
+
+rtt_avg = 0
 
 
 def gen_packet():
@@ -100,6 +109,15 @@ def send(sock):
             lock.release()
 
 
+# Main receive thread
+def receive(sock):
+    global send_timers
+
+    while True:
+        msg, _ = sock.recvfrom(packet_length)
+        ack = pckt.extract(msg)
+
+        
 
 
 # print("Hello, still running!")
