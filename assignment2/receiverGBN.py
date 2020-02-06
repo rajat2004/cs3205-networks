@@ -5,6 +5,9 @@ import sys
 import argparse
 import random
 
+from datetime import datetime
+from datetime import timedelta
+
 from packet import *
 
 parser = argparse.ArgumentParser(description="Receiver script for Go Back N protocol")
@@ -15,7 +18,9 @@ parser = argparse.ArgumentParser(description="Receiver script for Go Back N prot
 receiver_port = 60000
 packet_length = 1024 # bytes
 
-random_drop_prob = 0.1 # Probabilty of packet being corrupted
+random_drop_prob = 0 # Probabilty of packet being corrupted
+
+debug = True
 
 try:
     recv_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -30,6 +35,15 @@ pckt = Packet(packet_length)
 
 expected_num = 0 # Sequence no. of expected packet
 
+start_time = datetime.now()
+
+
+def millis(dt_now):
+    dt = dt_now - start_time
+    ms = (dt.days * 24 * 60 * 60 + dt.seconds) * 1000 + dt.microseconds / 1000.0
+    return ms
+
+
 while True:
     message, address = recv_socket.recvfrom(packet_length)
     
@@ -40,6 +54,10 @@ while True:
     
     seq_num = pckt.extract(message)
     print("Received pckt: ", seq_num)
+
+    if debug:
+        dt_now = datetime.now()
+        print("Seq %d: Time Received: %d:%d   Packet Dropped: false" % (seq_num, millis(dt_now), dt_now.microsecond%1000))
 
     if (seq_num == expected_num):
         print("Got expected packet, sending ACK ", expected_num)
