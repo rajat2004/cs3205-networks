@@ -19,9 +19,9 @@ parser = argparse.ArgumentParser(description="Receiver script for Go Back N prot
 receiver_port = 60000
 packet_length = 1024 # bytes
 
-random_drop_prob = 0 # Probabilty of packet being corrupted
+random_drop_prob = 0.1 # Probabilty of packet being corrupted
 
-debug = True
+DEBUG = True
 
 try:
     recv_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -34,7 +34,7 @@ print("Socket bound to port %d" %(receiver_port))
 
 pckt = Packet(packet_length)
 
-expected_num = 0 # Sequence no. of expected packet
+expected_num = 1 # Sequence no. of expected packet
 
 start_time = datetime.now()
 
@@ -45,25 +45,25 @@ while True:
     
     if(random.random() <= random_drop_prob):
         # Packet is corrupted
-        print("Dropping packet ", pckt.extract(message))
+        # print("Dropping packet ", pckt.extract(message))
         continue
     
     seq_num = pckt.extract(message)
-    print("Received pckt: ", seq_num)
+    # print("Received pckt: ", seq_num)
 
-    if debug:
+    if DEBUG:
         dt_now = datetime.now()
-        print("Seq %d: Time Received: %d:%d   Packet Dropped: false" % (seq_num, millis(dt_now, start_time), dt_now.microsecond%1000))
+        print("Seq %d: Time Received: %s  Packet Dropped: false" % (seq_num, str(dt_now.timestamp()*1000.0)))
 
     if (seq_num == expected_num):
-        print("Got expected packet, sending ACK ", expected_num)
+        # print("Got expected packet, sending ACK ", expected_num)
         pkt = pckt.create(expected_num)
         recv_socket.sendto(pkt, address)
         expected_num += 1
-    # else:
-    #     print("Unexpected packet, sending ACK ", expected_num-1)
-    #     pkt = pckt.create(expected_num-1)
-    #     recv_socket.sendto(pkt, address)
+    else:
+        # print("Unexpected packet, sending ACK ", expected_num-1)
+        pkt = pckt.create(expected_num-1)
+        recv_socket.sendto(pkt, address)
 
 
 

@@ -19,13 +19,17 @@ receiver_port = 60000
 receiver_ip = "127.0.0.1"
 addr = (receiver_ip, receiver_port)
 
-packet_length = 1024    # bytes
+DEBUG = True
 
-packet_gen_rate = 10     # Packets gen. per second
-max_buffer_size = 10    # Max packets in buffer
+PACKET_LENGTH = 1024    # bytes
 
-window_size = 5         # Window size for broadcasting
-max_packets = 100       # No. of packets to be Ack
+PACKET_GEN_RATE = 10    # Packets gen. per second
+MAX_BUFFER_SIZE = 10    # Max packets in buffer
+
+WINDOW_SIZE = 5         # Window size for broadcasting
+MAX_PACKETS = 100 + 1   # No. of packets to be Ack
+
+TIMEOUT_INTERVAL = 100  # 100ms
 
 
 # List of packets to be sent
@@ -35,20 +39,33 @@ packets_in_buffer = 0
 sequence_no = 0
 
 
-pckt = Packet(packet_length)
+pckt = Packet(PACKET_LENGTH)
 
 # Lock for accessing packets_buffer and related variables
 lock = threading.Lock()
+# Lock for receiving thread to update base
+lock2 = threading.Lock()
 
-# Timers for apckets being sent
-send_timers = {}
-# For first 10 packets, duration is 100ms
-for i in range(1, 11):
-    send_timers[i] = Timer(100)
+# Timers for packets being sent
+timers = []
+# No. of attempts for each packet
+attempts = []
 
 rtt_avg = 0
+total_packets_sent = 0
+total_acks = 0
 
 
+# Shared across sending and receiving threads
+base = 1
+send_timer = Timer()
+send_timer.set_duration(TIMEOUT_INTERVAL)
+
+
+######################################
+#
+#       Packet generating code
+#
 def gen_packet():
     '''
     Generates packet and stores in Buffer
@@ -58,7 +75,7 @@ def gen_packet():
     global sequence_no
 
     lock.acquire()
-    if packets_in_buffer < max_buffer_size:
+    if packets_in_buffer < MAX_BUFFER_SIZE:
         packets_buffer.append(pckt.create(sequence_no))
         sequence_no += 1
         packets_in_buffer += 1
@@ -83,53 +100,170 @@ def main_thread_func(pckt_gen_rate):
     scheduler.run()
 
 ## Packet generating thread
-thread1 = threading.Thread(target=main_thread_func, args=(packet_gen_rate,), daemon=True)
-thread1.start()
+# thread1 = threading.Thread(target=main_thread_func, args=(PACKET_GEN_RATE,), daemon=True)
+# thread1.start()
+
+def gen_packets_temp():
+    '''
+    Temporary function which generates MAX_PACKETS no. of packets and stores it
+    '''
+    global packets_buffer
+    global timers
+    global attempts
+
+    for i in range(MAX_PACKETS):
+        packets_buffer.append(pckt.create(i))
+        timers.append(Timer())
+        attempts.append(0)
+    
+
+
+#
+#       Packet generating code ends
+#
+####################################
+
 
 # Main sender code
 def send(sock):
     global packets_buffer
     global packets_in_buffer
+    global send_timer
+    global lock2
+    global lock
+    global base
+
+    global attempts
+    global timers
+    global total_packets_sent
 
     total_packets_sent = 0
 
-    while total_packets_sent <= max_packets:
-        lock.acquire()
-        if packets_in_buffer == 0:
-            print("Buffer empty, releasing lock")
-            lock.release()
-            # sleep for some time
-            time.sleep(1.0/packet_gen_rate)
-        else:
-            message = packets_buffer.pop(0)
-            packets_in_buffer-=1
-            sock.sendto(message, addr)
+    # Start receiving thread
+    thread2 = threading.Thread(target=receive, args=(sock,), daemon=True)
+    thread2.start()
+
+    next_seq_num = 1
+
+    # Create MAX_PACKETS
+    gen_packets_temp()
+
+    window_size = WINDOW_SIZE
+
+    while base < MAX_PACKETS:
+        lock2.acquire()
+
+        # Send all packets in window
+        while next_seq_num < base + window_size:
+            # print("Sending %d, Window size: %d" %(next_seq_num, window_size))
+            sock.sendto(packets_buffer[next_seq_num], addr)
+
+            # Keep count of transmission attempts for each sequence no.
+            attempts[next_seq_num]+=1
+            # Start timer for each packet, used to calculate RTT
+            timers[next_seq_num].start()
+
+            next_seq_num+=1
             total_packets_sent+=1
+
+        if not send_timer.check_if_running():
+            # print("Starting timer")
+            send_timer.start()
+
+        # Wait until timeout or ACK is received
+        while send_timer.check_if_running() and not send_timer.timeout():
+            lock2.release()
+            # print("Sleeping")
+            # time.sleep(1.0/PACKET_GEN_RATE)
+            lock2.acquire()
+
+        # If timeout, need to retransmit all packets from un-ack pakcet
+        if send_timer.timeout():
+            # print("Timeout: ", base)
+            send_timer.stop()
+            next_seq_num = base
+        else:
+            # Got ACK, update window size
+            # So as to not run into seg fault when sending the last packets
+            window_size = min(WINDOW_SIZE, MAX_PACKETS-base)
+            # print("Updating window_size, base = %d, window_size = %d" %(base, window_size))
+
+        lock2.release()
+
+
+
+        # if packets_in_buffer == 0:
+        #     print("Buffer empty, releasing lock")
+        #     lock.release()
+        #     # sleep for some time
+        #     time.sleep(1.0/PACKET_GEN_RATE)
+        # else:
+        #     message = packets_buffer.pop(0)
+        #     packets_in_buffer-=1
+
+        #     # For packets < 10, timeout is 100ms
+        #     # if pckt.extract(message) < 10:
+        #     #     send_timers.append(Timer(100))
+        #     # else:
+        #     #     send_timers.append(Timer(2*rtt_avg))
+
+        #     sock.sendto(message, addr)
+        #     total_packets_sent+=1
             
-            lock.release()
+        #     lock.release()
 
 
-# Main receive thread
+########## Receiving Thread ##################
+
 def receive(sock):
-    global send_timers
+    global send_timer
+    global base
+    global lock2
+    global total_acks
+
+    global timers
+    global rtt_avg
 
     while True:
-        msg, _ = sock.recvfrom(packet_length)
+        msg, _ = sock.recvfrom(PACKET_LENGTH)
         ack = pckt.extract(msg)
+
+        # print("Got ACK: ", ack)
+        # total_acks+=1
+        if ack >= base:
+            lock2.acquire()
+            send_timer.stop()
+            # TODO: Calculate RTT for each packet and update rtt_avg
+            for i in range(base, ack+1):
+                timers[i].stop()
+                rtt_avg += (timers[i].get_rtt() - rtt_avg)/i
+                # TODO: Add Time generated
+                if DEBUG:
+                    print("Seq " + str(ack) + "\t Time Gen: " + str(timers[i].start_time.timestamp()*1000.0)+ 
+                          "\t RTT: " + str(rtt_avg) + "\t Attempts: " + str(attempts[i]))
+            
+            # Cumulative ACKs
+            base = ack + 1
+            total_acks+=1
+            # print("Base updated: ", base)
+            lock2.release()
 
         
 
 
 # print("Hello, still running!")
 
-try:
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-except socket.error as err:
-    print("Socket creation error %s" %(err))
+if __name__ == "__main__":    
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    except socket.error as err:
+        print("Socket creation error %s" %(err))
 
 
-print("Starting!")
-send(s)
+    print("Starting!")
+    send(s)
+    s.close()
+    print("PktRate: %d, Length: %d, Retran ratio: %f, Avg RTT: %f" %(PACKET_GEN_RATE, PACKET_LENGTH, (total_packets_sent/total_acks), rtt_avg))
 
 # message = pckt.create(sequence_no)
 
