@@ -12,22 +12,39 @@ from timer import *
 
 parser = argparse.ArgumentParser(description="Sender script for Go Back N protocol")
 
-# TODO: Add arguments required 
+# Arguments required 
+parser.add_argument("-d", "--debug", action="store_true",
+                    help="Turn on DEBUG mode")
+parser.add_argument("-s", "--receiver_ip", required=True, type=str, 
+                    help="Receiver's IP address")
+parser.add_argument("-p", "--port", required=True, type=int, 
+                    help="Receiver's port number")
+parser.add_argument("-l", "--length", required=True, type=int, 
+                    help="Packet length in bytes")
+parser.add_argument("-r", "--rate", required=True, type=int, 
+                    help="Rate of packets generation, per second")
+parser.add_argument("-n", "--max_packets", required=True, type=int, 
+                    help="Max packets to be sent")
+parser.add_argument("-w", "--window", required=True, type=int, 
+                    help="Window size")
+parser.add_argument("-b", "--buffer_size", required=True, type=int,
+                    help="")
 
+args = parser.parse_args()
 
-receiver_port = 60000
-receiver_ip = "127.0.0.1"
+receiver_port = args.port
+receiver_ip = args.receiver_ip
 addr = (receiver_ip, receiver_port)
 
-DEBUG = True
+DEBUG = args.debug
 
-PACKET_LENGTH = 1024    # bytes
+PACKET_LENGTH = args.length    # bytes
 
-PACKET_GEN_RATE = 10    # Packets gen. per second
-MAX_BUFFER_SIZE = 10    # Max packets in buffer
+PACKET_GEN_RATE = args.rate   # Packets gen. per second
+MAX_BUFFER_SIZE = args.buffer_size    # Max packets in buffer
 
-WINDOW_SIZE = 5         # Window size for broadcasting
-MAX_PACKETS = 100 + 1   # No. of packets to be Ack
+WINDOW_SIZE = args.window         # Window size for broadcasting
+MAX_PACKETS = args.max_packets+1  # No. of packets to be Ack
 
 TIMEOUT_INTERVAL = 100  # 100ms
 
@@ -87,7 +104,7 @@ def gen_packet():
         timers.append(Timer())
         attempts.append(0)
 
-        print("Added Packet with seq_no %d in buffer" % (sequence_no))
+        # print("Added Packet with seq_no %d in buffer" % (sequence_no))
         sequence_no += 1
         packets_in_buffer += 1
         
@@ -200,11 +217,17 @@ def send(sock):
                 lock2.acquire()
                 continue
 
-            print("Sending %d" %(next_seq_num))
+            # print("Sending %d" %(next_seq_num))
             sock.sendto(packets_buffer[next_seq_num], addr)
 
             # Keep count of transmission attempts for each sequence no.
             attempts[next_seq_num]+=1
+
+            # If no. of retries for a packet exceeds 5, terminate
+            if attempts[next_seq_num] >= 6:
+                print("No, of retries exceeded 5, exiting!")
+                sys.exit()
+            
             # Start timer for each packet, used to calculate RTT
             timers[next_seq_num].start()
 
@@ -243,26 +266,6 @@ def send(sock):
 
 
 
-        # if packets_in_buffer == 0:
-        #     print("Buffer empty, releasing lock")
-        #     lock.release()
-        #     # sleep for some time
-        #     time.sleep(1.0/PACKET_GEN_RATE)
-        # else:
-        #     message = packets_buffer.pop(0)
-        #     packets_in_buffer-=1
-
-        #     # For packets < 10, timeout is 100ms
-        #     # if pckt.extract(message) < 10:
-        #     #     send_timers.append(Timer(100))
-        #     # else:
-        #     #     send_timers.append(Timer(2*rtt_avg))
-
-        #     sock.sendto(message, addr)
-        #     total_packets_sent+=1
-            
-        #     lock.release()
-
 
 ########## Receiving Thread ##################
 
@@ -299,10 +302,7 @@ def receive(sock):
             # print("Base updated: ", base)
             lock2.release()
 
-        
-
-
-# print("Hello, still running!")
+####### Receiving thread ends #########
 
 if __name__ == "__main__":    
     try:
@@ -311,12 +311,8 @@ if __name__ == "__main__":
         print("Socket creation error %s" %(err))
 
 
-    print("Starting!")
+    # print("Starting!")
     send(s)
     s.close()
     print("PktRate: %d, Length: %d, Retran ratio: %f, Avg RTT: %f" %(PACKET_GEN_RATE, PACKET_LENGTH, (total_packets_sent/total_acks), rtt_avg))
 
-# message = pckt.create(sequence_no)
-
-# message = "Hello World".encode()
-# s.sendto(message, addr)

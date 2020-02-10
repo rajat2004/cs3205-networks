@@ -14,14 +14,26 @@ from timer import *
 parser = argparse.ArgumentParser(description="Receiver script for Go Back N protocol")
 
 # TODO: Add arguments required 
+parser.add_argument("-d", "--debug", action="store_true",
+                    help="Turn on DEBUG mode")
+parser.add_argument("-p", "--port", required=True, type=int, 
+                    help="Receiver's port number")
+parser.add_argument("-n", "--max_packets", required=True, type=int, 
+                    help="Max packets to be received")
+parser.add_argument("-e", "--drop_prob", required=True, type=float,
+                    help="Probability of packet being corrupted")
+parser.add_argument("-l", "--length", required=True, type=int, 
+                    help="Packet length in bytes")
 
+args = parser.parse_args()
 
-receiver_port = 60000
-packet_length = 1024 # bytes
+receiver_port = args.port 
+packet_length = args.length # bytes
 
-random_drop_prob = 0.1 # Probabilty of packet being corrupted
+random_drop_prob = args.drop_prob # Probabilty of packet being corrupted
 
-DEBUG = True
+MAX_PACKETS = args.max_packets
+DEBUG = args.debug
 
 try:
     recv_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -29,8 +41,8 @@ except socket.error as err:
     print("Socket creation error %s" %(err))
 
 
-recv_socket.bind(('', receiver_port))
-print("Socket bound to port %d" %(receiver_port))
+recv_socket.bind(('0.0.0.0', receiver_port))
+# print("Socket bound to port %d" %(receiver_port))
 
 pckt = Packet(packet_length)
 
@@ -38,10 +50,11 @@ expected_num = 1 # Sequence no. of expected packet
 
 start_time = datetime.now()
 
-
+total_acks = 0
 
 while True:
     message, address = recv_socket.recvfrom(packet_length)
+    total_acks+=1
     
     if(random.random() <= random_drop_prob):
         # Packet is corrupted
@@ -65,7 +78,5 @@ while True:
         pkt = pckt.create(expected_num-1)
         recv_socket.sendto(pkt, address)
 
-
-
-# message, address = recv_socket.recvfrom(packet_length)
-# print(pckt.extract(message))
+    if(total_acks > MAX_PACKETS):
+        break
