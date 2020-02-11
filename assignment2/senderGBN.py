@@ -28,7 +28,7 @@ parser.add_argument("-n", "--max_packets", required=True, type=int,
 parser.add_argument("-w", "--window", required=True, type=int, 
                     help="Window size")
 parser.add_argument("-b", "--buffer_size", required=True, type=int,
-                    help="")
+                    help="Packet buffer size")
 
 args = parser.parse_args()
 

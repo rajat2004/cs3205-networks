@@ -19,16 +19,18 @@ parser.add_argument("-s", "--receiver_ip", required=True, type=str,
                     help="Receiver's IP address")
 parser.add_argument("-p", "--port", required=True, type=int, 
                     help="Receiver's port number")
-parser.add_argument("-l", "--length", required=True, type=int, 
+parser.add_argument("-L", "--length", required=True, type=int, 
                     help="Packet length in bytes")
-parser.add_argument("-r", "--rate", required=True, type=int, 
+parser.add_argument("-R", "--rate", required=True, type=int, 
                     help="Rate of packets generation, per second")
-parser.add_argument("-n", "--max_packets", required=True, type=int, 
+parser.add_argument("-N", "--max_packets", required=True, type=int, 
                     help="Max packets to be sent")
-parser.add_argument("-w", "--window", required=True, type=int, 
+parser.add_argument("-W", "--window", required=True, type=int, 
                     help="Window size")
-parser.add_argument("-b", "--buffer_size", required=True, type=int,
-                    help="")
+parser.add_argument("-B", "--buffer_size", required=True, type=int,
+                    help="Packet buffer size")
+parser.add_argument("-n", "--seq_length", required=True, type=int,
+                    help="Sequence number field length in bits")
 
 args = parser.parse_args()
 
@@ -46,7 +48,10 @@ MAX_BUFFER_SIZE = args.buffer_size    # Max packets in buffer
 WINDOW_SIZE = args.window         # Window size for broadcasting
 MAX_PACKETS = args.max_packets+1  # No. of packets to be Ack
 
-TIMEOUT_INTERVAL = 100  # 100ms
+seq_field_length = args.seq_length
+WINDOW_SIZE = min(WINDOW_SIZE, 2**(seq_field_length-1))
+
+TIMEOUT_INTERVAL = 300  # 300ms
 
 
 # Packet related variables
@@ -69,6 +74,11 @@ lock2 = threading.Lock()
 timers = [Timer()]
 # No. of attempts for each packet
 attempts = [0]
+
+# Unack'ed packets
+ack_left = []
+
+min_unack_pckt = sys.maxsize
 
 rtt_avg = 0
 total_packets_sent = 0
@@ -166,6 +176,8 @@ def send(sock):
     global attempts
     global timers
     global total_packets_sent
+    global ack_left
+    global min_unack_pckt
 
     total_packets_sent = 0
 
@@ -200,67 +212,72 @@ def send(sock):
                 # Buffer is not empty, decrease count and release
                 packets_in_buffer-=1
                 lock.release()
-                
-                if not send_timer.check_if_running():
-                    # print("Starting timer")
-                    send_timer.start()
-                    if next_seq_num <= 10:
-                        send_timer.set_duration(100)
-                    else:
-                        send_timer.set_duration(2*rtt_avg)
 
             else:
                 # Buffer is empty, release and retry
                 lock.release()
-                # sleep for some time, so that pakcet is added to buffer
+                # sleep for some time, so that packet is added to buffer
                 time.sleep(1.0/PACKET_GEN_RATE)
                 lock2.acquire()
                 continue
 
+            # If no. of unACK'ed packets is more than sender, then don't send 
+            if len(ack_left) >= window_size:
+                break
+
+            lock2.acquire()
             # print("Sending %d" %(next_seq_num))
             sock.sendto(packets_buffer[next_seq_num], addr)
+
+            min_unack_pckt = min(min_unack_pckt, next_seq_num)
+            
+            ack_left.append(next_seq_num)
+            # Start timer for each packet, used to calculate RTT
+            timers[next_seq_num].start()
+            if next_seq_num > 10:
+                timers[next_seq_num].set_duration(2*rtt_avg)
+            else:
+                timers[next_seq_num].set_duration(300)
+
+            lock2.release()
 
             # Keep count of transmission attempts for each sequence no.
             attempts[next_seq_num]+=1
 
-            # If no. of retries for a packet exceeds 5, terminate
-            if attempts[next_seq_num] >= 6:
-                print("No, of retries exceeded 5, exiting!")
+            # If no. of retries for a packet exceeds 10, terminate
+            if attempts[next_seq_num] >= 11:
+                print("No, of retries for %d exceeded 10, exiting!" %(next_seq_num))
                 sys.exit()
-            
-            # Start timer for each packet, used to calculate RTT
-            timers[next_seq_num].start()
 
             next_seq_num+=1
             total_packets_sent+=1
 
             lock2.acquire()
 
+        lock2.release()
 
-        # if not send_timer.check_if_running():
-        #     # print("Starting timer")
-        #     send_timer.start()
+        lock2.acquire()
 
-        # lock2.release()
-        # Wait until timeout or ACK is received
-        while send_timer.check_if_running() and not send_timer.timeout():
-            # pass
-            lock2.release()
-            # print("Sleeping")
-            # time.sleep(1.0/PACKET_GEN_RATE)
-            lock2.acquire()
+        for pckt_left in ack_left:
+            if timers[pckt_left].timeout():
+                lock2.release()
+                # next_seq_num = pckt_left
+                # Transmit the packets with timeout
+                print("Packet %d timeout!" %(pckt_left))
+                sock.sendto(packets_buffer[pckt_left], addr)
 
-        # lock2.acquire()
-        # If timeout, need to retransmit all packets from un-ack pakcet
-        if send_timer.timeout():
-            # print("Timeout: ", base)
-            send_timer.stop()
-            next_seq_num = base
-        else:
-            # Got ACK, update window size
-            # So as to not run into seg fault when sending the last packets
-            window_size = min(WINDOW_SIZE, MAX_PACKETS-base)
-            # print("Updating window_size, base = %d, window_size = %d" %(base, window_size))
+                timers[pckt_left].start()
+                if pckt_left > 10:
+                    timers[pckt_left].set_duration(2*rtt_avg)
+                else:
+                    timers[pckt_left].set_duration(300)
+
+                attempts[pckt_left]+=1
+
+                total_packets_sent+=1
+
+                lock2.acquire()
+
 
         lock2.release()
 
@@ -278,29 +295,48 @@ def receive(sock):
     global timers
     global rtt_avg
 
+    global ack_left
+    global min_unack_pckt
+
     while True:
         msg, _ = sock.recvfrom(PACKET_LENGTH)
         ack = pckt.extract(msg)
 
-        # print("Got ACK: ", ack)
-        # total_acks+=1
-        if ack >= base:
+        print("Got ACK: ", ack)
+        total_acks+=1
+
+        lock2.acquire()
+
+        # We might get repeat ACKs for already sent packet
+        if ack in ack_left:
+            ack_left.remove(ack)
+
+        if ack==min_unack_pckt:
+            if len(ack_left) is not 0:
+                min_unack_pckt = min(ack_left)
+            else:
+                min_unack_pckt+=1
+
+
+        if timers[ack].check_if_running():
+            timers[ack].stop()
+            rtt_avg += (timers[ack].get_rtt() - rtt_avg)/total_acks
+        lock2.release()
+        
+        if DEBUG:
+            print("Seq " + str(ack) + ":\t Time Gen: " + str(timers[ack].start_time.timestamp()*1000.0)+ 
+                  "\t RTT: " + str(rtt_avg) + "\t Attempts: " + str(attempts[ack]))
+
+        if ack==base:
             lock2.acquire()
-            send_timer.stop()
-            # TODO: Calculate RTT for each packet and update rtt_avg
-            for i in range(base, ack+1):
-                timers[i].stop()
-                rtt_avg += (timers[i].get_rtt() - rtt_avg)/i
-                # TODO: Add Time generated
-                if DEBUG:
-                    print("Seq " + str(ack) + ":\t Time Gen: " + str(timers[i].start_time.timestamp()*1000.0)+ 
-                          "\t RTT: " + str(rtt_avg) + "\t Attempts: " + str(attempts[i]))
-            
-            # Cumulative ACKs
-            base = ack + 1
-            total_acks+=1
-            # print("Base updated: ", base)
+            # Advance base till the next non ack'ed packet
+            while not timers[base].check_if_running():
+                base+=1
+                print("Updating base to %d, min_unack_pckt is %d" %(base, min_unack_pckt))
+                if base == min_unack_pckt:
+                    break
             lock2.release()
+
 
 ####### Receiving thread ends #########
 

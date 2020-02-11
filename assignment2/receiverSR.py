@@ -18,12 +18,18 @@ parser.add_argument("-d", "--debug", action="store_true",
                     help="Turn on DEBUG mode")
 parser.add_argument("-p", "--port", required=True, type=int, 
                     help="Receiver's port number")
-parser.add_argument("-n", "--max_packets", required=True, type=int, 
+parser.add_argument("-N", "--max_packets", required=True, type=int, 
                     help="Max packets to be received")
 parser.add_argument("-e", "--drop_prob", required=True, type=float,
                     help="Probability of packet being corrupted")
 parser.add_argument("-l", "--length", required=True, type=int, 
                     help="Packet length in bytes")
+parser.add_argument("-W", "--window", required=True, type=int, 
+                    help="Window size")
+parser.add_argument("-n", "--seq_length", required=True, type=int,
+                    help="Sequence number field length in bits")
+parser.add_argument("-B", "--buffer_size", required=True, type=int,
+                    help="Packet buffer size")
 
 args = parser.parse_args()
 
@@ -34,6 +40,14 @@ random_drop_prob = args.drop_prob # Probabilty of packet being corrupted
 
 MAX_PACKETS = args.max_packets
 DEBUG = args.debug
+
+WINDOW_SIZE = args.window         # Window size for receiving
+
+seq_field_length = args.seq_length
+WINDOW_SIZE = min(WINDOW_SIZE, 2**(seq_field_length-1))
+
+MAX_BUFFER_SIZE = args.buffer_size    # Max packets in buffer
+
 
 try:
     recv_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -48,35 +62,76 @@ pckt = Packet(packet_length)
 
 expected_num = 1 # Sequence no. of expected packet
 
+recv_time = {}
+
 start_time = datetime.now()
 
+curr_buffer_size = 0
 total_acks = 0
+recv_base = 1
 
 while True:
     message, address = recv_socket.recvfrom(packet_length)
     total_acks+=1
-    
+    seq_num = pckt.extract(message)
+
     if(random.random() <= random_drop_prob):
         # Packet is corrupted
-        # print("Dropping packet ", pckt.extract(message))
+        print("Dropping packet ", seq_num)
         continue
     
-    seq_num = pckt.extract(message)
+    # Check this logic!
+    if curr_buffer_size > MAX_BUFFER_SIZE:
+        # Buffer is full
+        print("Buffer full, dropping ", seq_num)
+        continue
+
     # print("Received pckt: ", seq_num)
 
-    if DEBUG:
-        dt_now = datetime.now()
-        print("Seq %d: Time Received: %s  Packet Dropped: false" % (seq_num, str(dt_now.timestamp()*1000.0)))
+    curr_time = datetime.now()
 
-    if (seq_num == expected_num):
-        # print("Got expected packet, sending ACK ", expected_num)
-        pkt = pckt.create(expected_num)
+    if seq_num>=recv_base and seq_num<(recv_base+WINDOW_SIZE):
+        # Falls within window, send selective ACK
+        pkt = pckt.create(seq_num)
         recv_socket.sendto(pkt, address)
-        expected_num += 1
+
+        if not seq_num in recv_time.keys():
+            # Packet being received for the first time
+            recv_time[seq_num] = curr_time
+            # Packet stored in buffer
+            curr_buffer_size+=1
+
+        if seq_num == recv_base:
+            # Advance base
+            while recv_base in recv_time.keys():
+                if DEBUG:
+                    print("Seq %d: Time Received: %s" %(recv_base, recv_time[recv_base].timestamp()*1000.0) )
+                recv_base+=1
+                # Buffer being emptied
+                curr_buffer_size-=1
+
+
+    elif seq_num<recv_base and seq_num>=(recv_base-WINDOW_SIZE):
+        # Already ACK'ed, but generate packet
+        pkt = pckt.create(seq_num)
+        recv_socket.sendto(pkt, address)
     else:
-        # print("Unexpected packet, sending ACK ", expected_num-1)
-        pkt = pckt.create(expected_num-1)
-        recv_socket.sendto(pkt, address)
+        # Do nothing
+        pass
+
+    # if DEBUG:
+    #     dt_now = datetime.now()
+    #     print("Seq %d: Time Received: %s  Packet Dropped: false" % (seq_num, str(dt_now.timestamp()*1000.0)))
+
+    # if (seq_num == expected_num):
+    #     # print("Got expected packet, sending ACK ", expected_num)
+    #     pkt = pckt.create(expected_num)
+    #     recv_socket.sendto(pkt, address)
+    #     expected_num += 1
+    # else:
+    #     # print("Unexpected packet, sending ACK ", expected_num-1)
+    #     pkt = pckt.create(expected_num-1)
+    #     recv_socket.sendto(pkt, address)
 
     if(total_acks > MAX_PACKETS):
         break
