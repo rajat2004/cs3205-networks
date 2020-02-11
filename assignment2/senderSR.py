@@ -44,6 +44,9 @@ addr = (receiver_ip, receiver_port)
 DEBUG = args.debug
 DEBUG_MAX = args.debug_max
 
+if DEBUG_MAX:
+    DEBUG = True
+
 PACKET_LENGTH = args.length             # bytes
 
 PACKET_GEN_RATE = args.rate             # Packets gen. per second
@@ -89,6 +92,8 @@ total_packets_sent = 0
 total_acks = 0
 
 next_seq_num  = 1
+
+flag = 0
 
 # Shared across sending and receiving threads
 base = 1
@@ -232,6 +237,8 @@ def send(sock):
             # If no. of unACK'ed packets is more than sender, then don't send 
             if len(ack_left) >= window_size:
                 break
+            if flag == 1:
+                return
 
             lock2.acquire()
             if DEBUG_MAX:
@@ -257,7 +264,8 @@ def send(sock):
             if attempts[next_seq_num] >= 11:
                 if DEBUG_MAX:
                     print("No, of retries for %d exceeded 10, exiting!" %(next_seq_num))
-                sys.exit()
+                # sys.exit()
+                return
 
             next_seq_num+=1
             total_packets_sent+=1
@@ -269,6 +277,11 @@ def send(sock):
         lock2.acquire()
 
         for pckt_left in ack_left:
+            if not pckt_left in ack_left:
+                if DEBUG_MAX:
+                    print("%d not in ack_left!" %(pckt_left))
+                continue
+
             if timers[pckt_left].timeout():
 
                 timers[pckt_left].start()
@@ -294,12 +307,14 @@ def send(sock):
                 if attempts[pckt_left] >= 11:
                     if DEBUG_MAX:
                         print("Attempts for %d exceeded 10, exiting" %(pckt_left) )
-                    sys.exit()
+                    # sys.exit()
+                    return
 
                 total_packets_sent+=1
 
-                lock2.acquire()
+                # time.sleep(rtt_avg/2)
 
+                lock2.acquire()
 
         lock2.release()
 
@@ -322,12 +337,14 @@ def receive(sock):
 
     global next_seq_num
 
+    global flag
+
     while True:
         msg, _ = sock.recvfrom(PACKET_LENGTH)
         ack = pckt.extract(msg)
 
         if DEBUG_MAX:
-            print("Got ACK: ", ack)
+            print("Got ACK: %d, Time Received: %s" %(ack, str(datetime.now().timestamp()*1000.0)))
         total_acks+=1
 
         lock2.acquire()
@@ -362,6 +379,13 @@ def receive(sock):
                     break
             lock2.release()
 
+        if base > MAX_PACKETS:
+            # Exit
+            if DEBUG_MAX:
+                print("MAX_PACKETS acknowledged!")
+            flag = 1
+            sys.exit()
+
 
 ####### Receiving thread ends #########
 
@@ -376,4 +400,3 @@ if __name__ == "__main__":
     send(s)
     s.close()
     print("PktRate: %d, Length: %d, Retran ratio: %f, Avg RTT: %f" %(PACKET_GEN_RATE, PACKET_LENGTH, (total_packets_sent/total_acks), rtt_avg))
-

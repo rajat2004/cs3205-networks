@@ -44,6 +44,8 @@ random_drop_prob = args.drop_prob # Probabilty of packet being corrupted
 MAX_PACKETS = args.max_packets
 DEBUG = args.debug
 DEBUG_MAX = args.debug_max
+if DEBUG_MAX:
+    DEBUG = True
 
 WINDOW_SIZE = args.window         # Window size for receiving
 
@@ -89,11 +91,11 @@ while True:
         continue
     
     # Check this logic!
-    if curr_buffer_size > MAX_BUFFER_SIZE:
-        # Buffer is full
-        if DEBUG_MAX:
-            print("Buffer full, dropping ", seq_num)
-        continue
+    # if curr_buffer_size > MAX_BUFFER_SIZE:
+    #     # Buffer is full
+    #     if DEBUG_MAX:
+    #         print("Buffer full, dropping ", seq_num)
+    #     continue
 
     curr_time = datetime.now()
 
@@ -126,6 +128,6 @@ while True:
         # Do nothing
         pass
 
-    if(total_acks > MAX_PACKETS):
+    if(recv_base > MAX_PACKETS):
         break
 

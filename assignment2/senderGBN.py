@@ -30,6 +30,9 @@ parser.add_argument("-w", "--window", required=True, type=int,
 parser.add_argument("-b", "--buffer_size", required=True, type=int,
                     help="Packet buffer size")
 
+parser.add_argument("-ddd", "--debug_max", action="store_true",
+                    help="Turn on all DEBUG statments")
+
 args = parser.parse_args()
 
 receiver_port = args.port
@@ -37,6 +40,9 @@ receiver_ip = args.receiver_ip
 addr = (receiver_ip, receiver_port)
 
 DEBUG = args.debug
+DEBUG_MAX = args.debug_max
+if DEBUG_MAX:
+    DEBUG=True
 
 PACKET_LENGTH = args.length    # bytes
 
@@ -74,6 +80,8 @@ rtt_avg = 0
 total_packets_sent = 0
 total_acks = 0
 
+
+flag = 0
 
 # Shared across sending and receiving threads
 base = 1
@@ -167,6 +175,8 @@ def send(sock):
     global timers
     global total_packets_sent
 
+    global flag
+
     total_packets_sent = 0
 
     # Start Packet Generating thread
@@ -186,13 +196,17 @@ def send(sock):
 
     # TODO: Figure out race condition with `base`
     # Idea: Add lock2.acquire() below this, replace acquire with release and vice-versa everywhere else
+    # lock2.acquire()
     while base < MAX_PACKETS:
+        # lock2.release() 
         lock2.acquire()
 
         # Send all packets in window
         while next_seq_num < base + window_size:
             lock2.release()
-            # print("Sending %d, Window size: %d" %(next_seq_num, window_size))
+            if DEBUG_MAX:
+                print("Sending %d, Window size: %d, Base: %d" 
+                        %(next_seq_num, window_size, base))
 
             # Acquire lock for reading packets from buffer
             lock.acquire()
@@ -217,24 +231,29 @@ def send(sock):
                 lock2.acquire()
                 continue
 
+            if flag is 1:
+                return
+
             # print("Sending %d" %(next_seq_num))
             sock.sendto(packets_buffer[next_seq_num], addr)
 
             # Keep count of transmission attempts for each sequence no.
             attempts[next_seq_num]+=1
-
+            if DEBUG_MAX:
+                print("Seq no %d: Attempt %d" %(next_seq_num, attempts[next_seq_num]))
             # If no. of retries for a packet exceeds 5, terminate
             if attempts[next_seq_num] >= 6:
-                print("No, of retries exceeded 5, exiting!")
-                sys.exit()
+                if DEBUG_MAX:
+                    print("No, of retries exceeded 5, exiting!")
+                # sys.exit()
+                return
             
+            lock2.acquire()
             # Start timer for each packet, used to calculate RTT
             timers[next_seq_num].start()
 
             next_seq_num+=1
-            total_packets_sent+=1
-
-            lock2.acquire()
+            total_packets_sent+=1            
 
 
         # if not send_timer.check_if_running():
@@ -246,23 +265,27 @@ def send(sock):
         while send_timer.check_if_running() and not send_timer.timeout():
             # pass
             lock2.release()
-            # print("Sleeping")
-            # time.sleep(1.0/PACKET_GEN_RATE)
+            if DEBUG_MAX:
+                print("Sleeping")
+            time.sleep(1.0/PACKET_GEN_RATE)
             lock2.acquire()
 
         # lock2.acquire()
         # If timeout, need to retransmit all packets from un-ack pakcet
         if send_timer.timeout():
-            # print("Timeout: ", base)
+            if DEBUG_MAX:
+                print("Timeout: ", base)
             send_timer.stop()
             next_seq_num = base
         else:
             # Got ACK, update window size
             # So as to not run into seg fault when sending the last packets
             window_size = min(WINDOW_SIZE, MAX_PACKETS-base)
-            # print("Updating window_size, base = %d, window_size = %d" %(base, window_size))
+            if DEBUG_MAX:
+                print("Updating window_size, base = %d, window_size = %d" %(base, window_size))
 
         lock2.release()
+        # lock2.acquire()
 
 
 
@@ -278,28 +301,42 @@ def receive(sock):
     global timers
     global rtt_avg
 
+    global flag
+
     while True:
         msg, _ = sock.recvfrom(PACKET_LENGTH)
         ack = pckt.extract(msg)
 
         # print("Got ACK: ", ack)
-        # total_acks+=1
+        total_acks+=1
         if ack >= base:
             lock2.acquire()
             send_timer.stop()
-            # TODO: Calculate RTT for each packet and update rtt_avg
+            # Calculate RTT for each packet and update rtt_avg
             for i in range(base, ack+1):
                 timers[i].stop()
                 rtt_avg += (timers[i].get_rtt() - rtt_avg)/i
-                # TODO: Add Time generated
+
                 if DEBUG:
                     print("Seq " + str(ack) + ":\t Time Gen: " + str(timers[i].start_time.timestamp()*1000.0)+ 
                           "\t RTT: " + str(rtt_avg) + "\t Attempts: " + str(attempts[i]))
             
             # Cumulative ACKs
             base = ack + 1
-            total_acks+=1
-            # print("Base updated: ", base)
+            # total_acks+=1
+            if DEBUG_MAX:
+                print("Base updated: ", base)
+
+            if base > MAX_PACKETS:
+                # Exit
+                if DEBUG_MAX:
+                    print("MAX_PACKETS acknowledged!")
+                flag = 1 
+                lock2.release()
+                
+                sys.exit()
+
+            
             lock2.release()
 
 ####### Receiving thread ends #########
