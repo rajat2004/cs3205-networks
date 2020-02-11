@@ -32,6 +32,9 @@ parser.add_argument("-B", "--buffer_size", required=True, type=int,
 parser.add_argument("-n", "--seq_length", required=True, type=int,
                     help="Sequence number field length in bits")
 
+parser.add_argument("-ddd", "--debug_max", action="store_true",
+                    help="Turn on all DEBUG statments")
+
 args = parser.parse_args()
 
 receiver_port = args.port
@@ -39,14 +42,15 @@ receiver_ip = args.receiver_ip
 addr = (receiver_ip, receiver_port)
 
 DEBUG = args.debug
+DEBUG_MAX = args.debug_max
 
-PACKET_LENGTH = args.length    # bytes
+PACKET_LENGTH = args.length             # bytes
 
-PACKET_GEN_RATE = args.rate   # Packets gen. per second
-MAX_BUFFER_SIZE = args.buffer_size    # Max packets in buffer
+PACKET_GEN_RATE = args.rate             # Packets gen. per second
+MAX_BUFFER_SIZE = args.buffer_size      # Max packets in buffer
 
-WINDOW_SIZE = args.window         # Window size for broadcasting
-MAX_PACKETS = args.max_packets+1  # No. of packets to be Ack
+WINDOW_SIZE = args.window               # Window size for broadcasting
+MAX_PACKETS = args.max_packets+1        # No. of packets to be Ack
 
 seq_field_length = args.seq_length
 WINDOW_SIZE = min(WINDOW_SIZE, 2**(seq_field_length-1))
@@ -84,6 +88,7 @@ rtt_avg = 0
 total_packets_sent = 0
 total_acks = 0
 
+next_seq_num  = 1
 
 # Shared across sending and receiving threads
 base = 1
@@ -114,7 +119,8 @@ def gen_packet():
         timers.append(Timer())
         attempts.append(0)
 
-        # print("Added Packet with seq_no %d in buffer" % (sequence_no))
+        if DEBUG_MAX:
+            print("Added Packet with seq_no %d in buffer" % (sequence_no))
         sequence_no += 1
         packets_in_buffer += 1
         
@@ -179,6 +185,8 @@ def send(sock):
     global ack_left
     global min_unack_pckt
 
+    global next_seq_num
+
     total_packets_sent = 0
 
     # Start Packet Generating thread
@@ -202,7 +210,7 @@ def send(sock):
         lock2.acquire()
 
         # Send all packets in window
-        while next_seq_num < base + window_size:
+        while next_seq_num < (base + window_size - len(ack_left)):
             lock2.release()
             # print("Sending %d, Window size: %d" %(next_seq_num, window_size))
 
@@ -226,7 +234,8 @@ def send(sock):
                 break
 
             lock2.acquire()
-            # print("Sending %d" %(next_seq_num))
+            if DEBUG_MAX:
+                print("Sending %d" %(next_seq_num))
             sock.sendto(packets_buffer[next_seq_num], addr)
 
             min_unack_pckt = min(min_unack_pckt, next_seq_num)
@@ -246,7 +255,8 @@ def send(sock):
 
             # If no. of retries for a packet exceeds 10, terminate
             if attempts[next_seq_num] >= 11:
-                print("No, of retries for %d exceeded 10, exiting!" %(next_seq_num))
+                if DEBUG_MAX:
+                    print("No, of retries for %d exceeded 10, exiting!" %(next_seq_num))
                 sys.exit()
 
             next_seq_num+=1
@@ -260,11 +270,6 @@ def send(sock):
 
         for pckt_left in ack_left:
             if timers[pckt_left].timeout():
-                lock2.release()
-                # next_seq_num = pckt_left
-                # Transmit the packets with timeout
-                print("Packet %d timeout!" %(pckt_left))
-                sock.sendto(packets_buffer[pckt_left], addr)
 
                 timers[pckt_left].start()
                 if pckt_left > 10:
@@ -272,7 +277,24 @@ def send(sock):
                 else:
                     timers[pckt_left].set_duration(300)
 
+                lock2.release()
+
+                # Transmit the packets with timeout
+                if DEBUG_MAX:
+                    print("Packet %d timeout!" %(pckt_left))
+                sock.sendto(packets_buffer[pckt_left], addr)
+
+                # timers[pckt_left].start()
+                # if pckt_left > 10:
+                #     timers[pckt_left].set_duration(2*rtt_avg)
+                # else:
+                #     timers[pckt_left].set_duration(300)
+
                 attempts[pckt_left]+=1
+                if attempts[pckt_left] >= 11:
+                    if DEBUG_MAX:
+                        print("Attempts for %d exceeded 10, exiting" %(pckt_left) )
+                    sys.exit()
 
                 total_packets_sent+=1
 
@@ -298,11 +320,14 @@ def receive(sock):
     global ack_left
     global min_unack_pckt
 
+    global next_seq_num
+
     while True:
         msg, _ = sock.recvfrom(PACKET_LENGTH)
         ack = pckt.extract(msg)
 
-        print("Got ACK: ", ack)
+        if DEBUG_MAX:
+            print("Got ACK: ", ack)
         total_acks+=1
 
         lock2.acquire()
@@ -315,8 +340,7 @@ def receive(sock):
             if len(ack_left) is not 0:
                 min_unack_pckt = min(ack_left)
             else:
-                min_unack_pckt+=1
-
+                min_unack_pckt = next_seq_num
 
         if timers[ack].check_if_running():
             timers[ack].stop()
@@ -332,7 +356,8 @@ def receive(sock):
             # Advance base till the next non ack'ed packet
             while not timers[base].check_if_running():
                 base+=1
-                print("Updating base to %d, min_unack_pckt is %d" %(base, min_unack_pckt))
+                if DEBUG_MAX:
+                    print("Updating base to %d, min_unack_pckt is %d" %(base, min_unack_pckt))
                 if base == min_unack_pckt:
                     break
             lock2.release()
