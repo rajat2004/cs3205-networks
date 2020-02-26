@@ -1,5 +1,5 @@
-CC=g++
-CFLAGS= -g -Wall -Werror
+CC=gcc
+CFLAGS=-Wall -Werror
 
 all: proxy
 
