@@ -1,6 +1,55 @@
 #include "proxy_parse.h"
 
+#include <unistd.h> 
+#include <stdio.h> 
+#include <sys/socket.h> 
+#include <stdlib.h> 
+#include <netinet/in.h> 
+#include <string.h> 
+#include <arpa/inet.h>
+
 int main(int argc, char * argv[]) {
+    int portno; // Port for proxy to bind, command-line arg
+
+    if (argc < 2) {
+        printf("Usage: %s <port-number>\n", argv[0]);
+        exit(EXIT_FAILURE);
+    }
+
+    portno = atoi(argv[1]);
+
+    int proxy_fd;
+
+    if ((proxy_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("Socket Creation error\n");
+        exit(EXIT_FAILURE);
+    }
+
+    int reuse = 1;
+    if (setsockopt(proxy_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &reuse, sizeof(reuse))) {
+        perror("Socket Reuse Addr,Port failed\n");
+    }
+
+    struct sockaddr_in proxy_addr;
+
+    proxy_addr.sin_family = AF_INET;
+    proxy_addr.sin_addr.s_addr = INADDR_ANY;
+    proxy_addr.sin_port = htons(portno);
+
+    if (bind(proxy_fd, (struct sockaddr *)&proxy_addr, sizeof(proxy_addr)) < 0) {
+        perror("Binding Error\n");
+        exit(EXIT_FAILURE);
+    }
+
+    int max_clients = 100;
+
+    if(listen(proxy_fd, max_clients) < 0) {
+        perror("Error while Listening\n");
+        exit(EXIT_FAILURE);
+    }
+    
+
+    /*
     struct ParsedRequest *req = ParsedRequest_create();
 
     const char *c = 
@@ -32,5 +81,6 @@ int main(int argc, char * argv[]) {
 
     struct ParsedHeader *r = ParsedHeader_get(req, "If-Modified-Since");
     printf("Modified value: %s\n", r->value);
+    */
     return 0;
 }
