@@ -12,4 +12,4 @@ clean:
 	rm -f proxy *.o
 
 tar:
-	tar -cvzf cos461_ass1_$(USER).tgz proxy.c README Makefile proxy_parse.c proxy_parse.h
+	tar -cvzf Assignment3-CS17B042.tgz proxy.c README Makefile proxy_parse.c proxy_parse.h
