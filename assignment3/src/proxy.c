@@ -55,6 +55,19 @@ char* readDataFromSocket(int sock_fd) {
     return request;
 }
 
+// Sends message to the (ip,port) the socket is connected to
+void sendToSocket(char *msg, int sockfd) {
+    int sent = 0;
+    int totalSent = 0;
+    int msglen = strlen(msg);
+
+    while(totalSent < msglen) {
+        sent = send(sockfd, (msg + totalSent), msglen-totalSent, 0);
+        // TODO: Error handling?
+        totalSent += sent;
+    }
+}
+
 // Returns socket connected to specified address and port no.
 int createServerSocket(char *addr, char *port) {
     int sockfd;
@@ -95,9 +108,9 @@ char* createServerRequest(struct ParsedRequest *req) {
         req->port = "80";
     }
 
-    if (req->method != (char*)"GET") {
+    if (strcmp(req->method, "GET") != 0) {
         // TODO: Send error message to client
-        printf("Method recevied: %s, expected GT, exiting\n", req->method);
+        printf("Method recevied: %s, expected GET, exiting\n", req->method);
         exit(EXIT_FAILURE);
     }
 
@@ -171,6 +184,15 @@ void handleRequest(int client_fd) {
 
         // Socket connected to server
         int serverfd = createServerSocket(req->host, req->port);
+
+        // Send request to server
+        sendToSocket(req_to_server, serverfd);
+
+        // Receive response from server
+        char* server_response = readDataFromSocket(serverfd);
+
+        // Send server response to client
+        sendToSocket(server_response, client_fd);
 
         exit(EXIT_SUCCESS);
     }

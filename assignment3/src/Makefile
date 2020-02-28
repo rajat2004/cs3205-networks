@@ -1,7 +1,7 @@
 CC=gcc
 CFLAGS=-Wall -Werror
 
-all: proxy test
+all: proxy
 
 proxy: proxy.c
 	$(CC) $(CFLAGS) -o proxy_parse.o -c proxy_parse.c
