@@ -1,15 +1,20 @@
 CC=gcc
 CFLAGS=-Wall -Werror
 
-all: proxy
+all: proxy test
 
 proxy: proxy.c
 	$(CC) $(CFLAGS) -o proxy_parse.o -c proxy_parse.c
 	$(CC) $(CFLAGS) -o proxy.o -c proxy.c
 	$(CC) $(CFLAGS) -o proxy proxy_parse.o proxy.o
 
+test: test.c
+	$(CC) $(CFLAGS) -o proxy_parse.o -c proxy_parse.c
+	$(CC) $(CFLAGS) -o test.o -c test.c
+	$(CC) $(CFLAGS) -o test test.o proxy_parse.o
+
 clean:
-	rm -f proxy *.o
+	rm -f proxy test *.o
 
 tar:
 	tar -cvzf Assignment3-CS17B042.tgz proxy.c README Makefile proxy_parse.c proxy_parse.h

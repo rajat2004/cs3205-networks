@@ -55,6 +55,22 @@ char* readDataFromSocket(int sock_fd) {
 }
 
 
+char* createServerRequest(struct ParsedRequest *req) {
+    char*  serverRequest;
+
+    if (req->port == NULL) {
+        printf("Port is emptry, setting to 80\n");
+        req->port = "80";
+    }
+
+    if (req->method != "GET") {
+        // TODO: Send error message to client
+        printf("Method recevied: %s, expected GT, exiting\n", req->method);
+        exit(EXIT_FAILURE);
+    }
+}
+
+
 // Handles request from client socket with fd client_fd
 void handleRequest(int client_fd) {
     // Fork child to handle request
@@ -73,6 +89,7 @@ void handleRequest(int client_fd) {
         struct ParsedRequest *req = ParsedRequest_create();
 
         if (ParsedRequest_parse(req, client_req_str, strlen(client_req_str)) < 0) {
+            // TODO: Send error message to Cient
             printf("Parse failed");
             exit(EXIT_FAILURE);
         }
@@ -82,6 +99,20 @@ void handleRequest(int client_fd) {
         printf("Port: %s\n", req->port);
         printf("Path: %s\n", req->path);
         printf("Version: %s\n", req->version);
+
+
+        char* req_to_server = createServerRequest(req);
+
+        // if (req->port == NULL) {
+        //     req->port = "80";
+        // }
+
+        // if (req->method != "GET") {
+        //     // TODO: Error message send to client
+        //     exit(EXIT_FAILURE);
+        // }
+
+
 
         exit(EXIT_SUCCESS);
     }
@@ -138,38 +169,5 @@ int main(int argc, char * argv[]) {
     handleRequest(client_fd);
 
 
-    /*
-    struct ParsedRequest *req = ParsedRequest_create();
-
-    const char *c = 
-    "GET http://www.google.com:80/index.html/ HTTP/1.0\r\nContent-Length:"
-    " 80\r\nIf-Modified-Since: Sat, 29 Oct 1994 19:43:31 GMT\r\n\r\n";
-
-    int len = strlen(c);
-    if (ParsedRequest_parse(req, c, len) < 0) {
-        printf("Parse failed\n");
-        return -1;
-    }
-
-    printf("Method: %s\n", req->method);
-    printf("Protocol: %s\n", req->protocol);
-    printf("Host: %s\n", req->host);
-    printf("Port: %s\n", req->port);
-    printf("Path: %s\n", req->path);
-    printf("Version: %s\n", req->version);
-
-    int rlen = ParsedRequest_totalLen(req);
-    printf("Total len: %d, %d\n", rlen, len);
-
-    char *b = (char*)malloc(rlen+1);
-    if (ParsedRequest_unparse(req, b, rlen) < 0) {
-        printf("Unparse failed\n");
-        return -1;
-    }
-    b[rlen]='\0';
-
-    struct ParsedHeader *r = ParsedHeader_get(req, "If-Modified-Since");
-    printf("Modified value: %s\n", r->value);
-    */
     return 0;
 }
