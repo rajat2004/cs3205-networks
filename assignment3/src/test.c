@@ -6,6 +6,7 @@ int main() {
     const char *c = 
     "GET http://www.google.com:80/index.html/ HTTP/1.0\r\nContent-Length:"
     " 80\r\nIf-Modified-Since: Sat, 29 Oct 1994 19:43:31 GMT\r\n\r\n";
+    // "GET http://www.cse.iitm.ac.in/ HTTP/1.0\r\n\r\n";
 
     int len = strlen(c);
     if (ParsedRequest_parse(req, c, len) < 0) {
@@ -30,8 +31,15 @@ int main() {
     }
     b[rlen]='\0';
 
+    ParsedHeader_set(req, "Connection", "close");
+
     struct ParsedHeader *r = ParsedHeader_get(req, "If-Modified-Since");
-    printf("Modified value: %s\n", r->value);
+    if (r != NULL)
+        printf("Modified value: %s\n", r->value);
+
+    r = ParsedHeader_get(req, "Connection");
+    if (r != NULL)
+        printf("Connection: %s\n", r->value);
     
     return 0;
 }

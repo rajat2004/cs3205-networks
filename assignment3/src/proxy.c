@@ -9,6 +9,7 @@
 #include <arpa/inet.h>
 #include <sys/wait.h>
 #include <sys/types.h>
+#include <netdb.h>
 
 int proxy_fd;
 int MAX_CHILD = 100;
@@ -54,20 +55,85 @@ char* readDataFromSocket(int sock_fd) {
     return request;
 }
 
+// Returns socket connected to specified address and port no.
+int createServerSocket(char *addr, char *port) {
+    int sockfd;
+
+    // Resolve hostname
+    struct addrinfo hints;
+    struct addrinfo *servinfo;
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;     // don't care IPv4 or IPv6
+    hints.ai_socktype = SOCK_STREAM; // TCP
+
+    if (getaddrinfo(addr, port, &hints, &servinfo) != 0) {
+        perror("Error getting server addrinfo\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Create socket and connect
+    if ((sockfd = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol)) < 0) {
+        perror("Server socket creation error, exiting\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if(connect(sockfd, servinfo->ai_addr, servinfo->ai_addrlen) < 0) {
+        perror("Connect to server failed\n");
+        exit(EXIT_FAILURE);
+    }
+
+    freeaddrinfo(servinfo);
+
+    return sockfd;
+}
+
 
 char* createServerRequest(struct ParsedRequest *req) {
-    char*  serverRequest;
-
     if (req->port == NULL) {
-        printf("Port is emptry, setting to 80\n");
+        printf("Port is empty, setting to 80\n");
         req->port = "80";
     }
 
-    if (req->method != "GET") {
+    if (req->method != (char*)"GET") {
         // TODO: Send error message to client
         printf("Method recevied: %s, expected GT, exiting\n", req->method);
         exit(EXIT_FAILURE);
     }
+
+    // Set Connection Close header
+    ParsedHeader_set(req, "Connection", "close");
+
+    // Set Host header
+    ParsedHeader_set(req, "Host", req->host);
+
+    // Prepare headers string for concatenation
+    int headers_len = ParsedHeader_headersLen(req);
+    char* headers_str = (char*)malloc(headers_len + 1);     // +1 for null-termination
+    ParsedRequest_unparse_headers(req, headers_str, headers_len);
+    headers_str[headers_len] = '\0';
+
+    // Prepare Request to be sent to server
+
+    // Example: GET http://www.cse.iitm.ac.in/ HTTP/1.0
+    // Length =            "GET" " "     "/"             " "   "HTTP/1.0"         "\r\n"
+    int serverRequestLength = 3 + 1 + strlen(req->path) + 1 + strlen(req->version) + 2;
+    serverRequestLength += headers_len;
+
+    char *serverRequest = (char*)malloc(serverRequestLength+1);
+
+    // Finally add everything
+    serverRequest[0] = '\0';
+    strcat(serverRequest, "GET ");
+    strcat(serverRequest, req->path);
+    strcat(serverRequest, " ");
+    strcat(serverRequest, req->version);
+    strcat(serverRequest, "\r\n");
+    strcat(serverRequest, headers_str);
+
+    printf("Server request: %s\n", serverRequest);
+
+    return serverRequest;
 }
 
 
@@ -100,19 +166,11 @@ void handleRequest(int client_fd) {
         printf("Path: %s\n", req->path);
         printf("Version: %s\n", req->version);
 
-
+        // Get request message to be sent to server
         char* req_to_server = createServerRequest(req);
 
-        // if (req->port == NULL) {
-        //     req->port = "80";
-        // }
-
-        // if (req->method != "GET") {
-        //     // TODO: Error message send to client
-        //     exit(EXIT_FAILURE);
-        // }
-
-
+        // Socket connected to server
+        int serverfd = createServerSocket(req->host, req->port);
 
         exit(EXIT_SUCCESS);
     }
