@@ -11,13 +11,13 @@
 #include <sys/types.h>
 #include <netdb.h>
 
-int proxy_fd;
-int MAX_CHILD = 100;
+int MAX_CLIENTS = 100;
+int BUFFER_SIZE = 4096;
+char *err_msg = "HTTP/1.0 400 Bad Request\r\n\r\n";
+int n_clients = 0;
 
 // Read data till "\r\n\r\n"
-char* readDataFromSocket(int sock_fd) {
-    int BUFFER_SIZE = 4096;
-
+char* readDataFromClientSocket(int sock_fd) {
     char* request;
     char buf[BUFFER_SIZE+1];            // 1 for '\0'
 
@@ -56,16 +56,43 @@ char* readDataFromSocket(int sock_fd) {
 }
 
 // Sends message to the (ip,port) the socket is connected to
-void sendToSocket(char *msg, int sockfd) {
+void sendToSocket(char *msg, int sock_fd) {
     int sent = 0;
     int totalSent = 0;
     int msglen = strlen(msg);
 
     while(totalSent < msglen) {
-        sent = send(sockfd, (msg + totalSent), msglen-totalSent, 0);
+        sent = send(sock_fd, (msg + totalSent), msglen-totalSent, 0);
         // TODO: Error handling?
         totalSent += sent;
     }
+}
+
+char* readDataFromSocket(int sock_fd) {
+    char* msg;
+    char buf[BUFFER_SIZE+1];            // 1 for '\0'
+
+    msg = (char*)malloc(BUFFER_SIZE+1);
+
+    int curr_request_size = BUFFER_SIZE;
+    int recv_length = 0;
+    int required_length = 0;
+    msg[0]='\0';                    // Needed for string concatenation
+
+    while((recv_length = recv(sock_fd, buf, BUFFER_SIZE, 0)) > 0) {
+        buf[recv_length] = '\0';
+
+        required_length += recv_length;
+        if (required_length > curr_request_size) {
+            // Allocate more memory for request string
+            curr_request_size *= 2;
+            msg = (char*)realloc(msg, curr_request_size+1);
+        }
+
+        strcat(msg, buf);
+    }
+
+    return msg;
 }
 
 // Returns socket connected to specified address and port no.
@@ -104,14 +131,8 @@ int createServerSocket(char *addr, char *port) {
 
 char* createServerRequest(struct ParsedRequest *req) {
     if (req->port == NULL) {
-        printf("Port is empty, setting to 80\n");
+        // printf("Port is empty, setting to 80\n");
         req->port = "80";
-    }
-
-    if (strcmp(req->method, "GET") != 0) {
-        // TODO: Send error message to client
-        printf("Method recevied: %s, expected GET, exiting\n", req->method);
-        exit(EXIT_FAILURE);
     }
 
     // Set Connection Close header
@@ -144,7 +165,7 @@ char* createServerRequest(struct ParsedRequest *req) {
     strcat(serverRequest, "\r\n");
     strcat(serverRequest, headers_str);
 
-    printf("Server request: %s\n", serverRequest);
+    // printf("Server request: %s\n", serverRequest);
 
     return serverRequest;
 }
@@ -163,21 +184,27 @@ void handleRequest(int client_fd) {
 
     // Inside child
     if(pid == 0) {
-        char *client_req_str = readDataFromSocket(client_fd);
+        char *client_req_str = readDataFromClientSocket(client_fd);
 
         struct ParsedRequest *req = ParsedRequest_create();
 
         if (ParsedRequest_parse(req, client_req_str, strlen(client_req_str)) < 0) {
-            // TODO: Send error message to Cient
             printf("Parse failed");
+            sendToSocket(err_msg, client_fd);
             exit(EXIT_FAILURE);
         }
-        printf("Method: %s\n", req->method);
-        printf("Protocol: %s\n", req->protocol);
-        printf("Host: %s\n", req->host);
-        printf("Port: %s\n", req->port);
-        printf("Path: %s\n", req->path);
-        printf("Version: %s\n", req->version);
+        // printf("Method: %s\n", req->method);
+        // printf("Protocol: %s\n", req->protocol);
+        // printf("Host: %s\n", req->host);
+        // printf("Port: %s\n", req->port);
+        // printf("Path: %s\n", req->path);
+        // printf("Version: %s\n", req->version);
+
+        if (strcmp(req->method, "GET") != 0) {
+            printf("Method received: %s, expected GET, exiting\n", req->method);
+            sendToSocket(err_msg, client_fd);
+            exit(EXIT_FAILURE);
+        }
 
         // Get request message to be sent to server
         char* req_to_server = createServerRequest(req);
@@ -189,16 +216,27 @@ void handleRequest(int client_fd) {
         sendToSocket(req_to_server, serverfd);
 
         // Receive response from server
-        char* server_response = readDataFromSocket(serverfd);
+        // char* server_response = readDataFromClientSocket(serverfd);
+        char *server_response = readDataFromSocket(serverfd);
 
         // Send server response to client
         sendToSocket(server_response, client_fd);
 
+        // Cleanup
+        ParsedRequest_destroy(req);
+        free(client_req_str);
+        free(req_to_server);
+        free(server_response);
+
+        close(client_fd);
+        close(serverfd);
+
         exit(EXIT_SUCCESS);
     }
 
-    int status;
-    wait(&status);
+    n_clients++;
+    // int status;
+    // wait(&status);
 }
 
 int main(int argc, char * argv[]) {
@@ -210,6 +248,7 @@ int main(int argc, char * argv[]) {
     }
 
     portno = atoi(argv[1]);
+    int proxy_fd;
 
     if ((proxy_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("Socket Creation error\n");
@@ -232,22 +271,28 @@ int main(int argc, char * argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    if(listen(proxy_fd, MAX_CHILD) < 0) {
+    if(listen(proxy_fd, MAX_CLIENTS*2) < 0) {
         perror("Error while Listening\n");
         exit(EXIT_FAILURE);
     }
 
-    // First test single client
-    int client_fd;
-    struct sockaddr_in client_addr;
-    int addrlen = sizeof(client_addr);
+    // Loop until limit of processes have been reached
+    while (n_clients < MAX_CLIENTS) {
+        int client_fd;
+        struct sockaddr_in client_addr;
+        int addrlen = sizeof(client_addr);
 
-    if ((client_fd = accept(proxy_fd, (struct sockaddr *)&client_addr, (socklen_t*)&addrlen)) < 0) {
-        perror("Accept error\n");
-        exit(EXIT_FAILURE);
+        if ((client_fd = accept(proxy_fd, (struct sockaddr *)&client_addr, (socklen_t*)&addrlen)) < 0) {
+            perror("Accept error\n");
+            exit(EXIT_FAILURE);
+        }
+        handleRequest(client_fd);
     }
-    handleRequest(client_fd);
 
+    int status;
+    while (wait(&status) > 0);  // Wait for all child processes to complete
+
+    close(proxy_fd);
 
     return 0;
 }
