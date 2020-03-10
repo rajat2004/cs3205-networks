@@ -37,7 +37,7 @@ except ImportError:
 # produce unexpected results, including the abnormal termination
 # of the testing script.
 # 
-pub_urls = ['http://www.mit.edu/', 'HTTP://WWW.stanford.edu/', 
+pub_urls = ['http://www.mit.edu/', 'http://www.scs.stanford.edu/', 
                'http://sns.cs.princeton.edu/',
                'http://yuba.stanford.edu/vns/',
                'http://yuba.stanford.edu/vns/images/su.gif'] 

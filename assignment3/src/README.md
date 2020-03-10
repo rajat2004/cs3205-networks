@@ -30,3 +30,10 @@ Compare with direct telnet connection - `telnet www.cse.iitm.ac.in 80` and use t
 
 Run multiple telnet connections from different terminals to test multiple clients
 
+The Python scripts can also be used for testing. Usage -
+```
+python proxy_tester.py src/proxy
+```
+
+Similar for `proxy_tester_conc.py`
+

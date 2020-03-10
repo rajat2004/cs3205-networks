@@ -166,6 +166,7 @@ char* createServerRequest(struct ParsedRequest *req) {
     strcat(serverRequest, headers_str);
 
     // printf("Server request: %s\n", serverRequest);
+    free(headers_str);
 
     return serverRequest;
 }
@@ -287,6 +288,7 @@ int main(int argc, char * argv[]) {
             exit(EXIT_FAILURE);
         }
         handleRequest(client_fd);
+        close(client_fd);
     }
 
     int status;

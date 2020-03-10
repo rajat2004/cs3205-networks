@@ -207,8 +207,8 @@ class ThreadPoolThread (threading.Thread):
 pub_urls = ['http://www.mit.edu/',
             'http://www.scs.stanford.edu/',];
 
-pub_conc = ['http://www.mit.edu/',];
-pub_ab   = ['http://www.mit.edu/',];
+pub_conc = ['http://www.scs.stanford.edu/',];
+pub_ab   = ['http://www.scs.stanford.edu/',];
 ab_conc  = ['-n 20 -c 1', '-n 200 -c 10', '-n 1000 -c 50'];
 
 # timeout_secs - Individual tests will be killed if they do not
