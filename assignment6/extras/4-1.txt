@@ -1,0 +1,67 @@
+LOAD configs of pc1 and pc2 form t1-config and t2-config respectively
+in case it dosent work use the below 2 commands on  pc1 and pc2 to configure them
+
+ip 192.42.1.1/24 192.42.1.101
+ip 192.42.3.2/24 192.42.3.102
+==================================================
+R1----------------------------------------
+config
+t
+interface ethernet 0/0
+ip address 192.42.1.101 255.255.255.0
+no shutdown
+exit
+exit
+
+config
+t
+interface ethernet 0/1
+ip address 192.42.2.101 255.255.255.0
+no shutdown
+exit
+exit
+
+R2----------------------------------------
+
+config
+t
+interface ethernet 0/0
+ip address 192.42.3.102 255.255.255.0
+no shutdown
+exit
+exit
+
+config
+t
+interface ethernet 0/1
+ip address 192.42.2.102 255.255.255.0
+no shutdown
+exit
+exit
+===========================================
+
+R1-----------------------------------------
+config
+t
+router rip
+version 2
+network 192.42.1.101
+network 192.42.2.101
+no auto-summary
+exit
+exit
+
+R2------------------------------------------
+config
+t
+router rip
+version 2
+network 192.42.2.102
+network 192.42.3.102
+no auto-summary
+exit
+exit
+
+============================================
+copy running-config startup-config
+

@@ -1,0 +1,148 @@
+load pc config of pc i using load ti-config
+or use the below commands to configure the pcs
+
+ip 192.42.1.1/24 192.42.1.101
+
+ip 192.42.3.2/24 192.42.3.102
+
+ip 192.42.5.3/24 192.42.5.103
+
+ip 192.42.7.4/24 192.42.7.104
+
+=========================================
+R1------------------------------------
+config
+t
+interface ethernet 0/0
+ip address 192.42.1.101 255.255.255.0
+no shutdown
+exit
+exit
+
+config
+t
+interface ethernet 0/1
+ip address 192.42.2.101 255.255.255.0
+no shutdown
+exit
+exit
+
+R2---------------------------------
+config
+t
+interface ethernet 0/0
+ip address 192.42.3.102 255.255.255.0
+no shutdown
+exit
+exit
+
+config
+t
+interface ethernet 0/1
+ip address 192.42.2.102 255.255.255.0
+no shutdown
+exit
+exit
+
+config
+t
+interface ethernet 0/2
+ip address 192.42.4.102 255.255.255.0
+no shutdown
+exit
+exit
+
+
+R3---------------------------------------------
+config
+t
+interface ethernet 0/0
+ip address 192.42.5.103 255.255.255.0
+no shutdown
+exit
+exit
+
+config
+t
+interface ethernet 0/1
+ip address 192.42.4.103 255.255.255.0
+no shutdown
+exit
+exit
+
+config
+t
+interface ethernet 0/2
+ip address 192.42.6.103 255.255.255.0
+no shutdown
+exit
+exit
+
+R4------------------------------------------------
+config
+t
+interface ethernet 0/1
+ip address 192.42.6.104 255.255.255.0
+no shutdown
+exit
+exit
+
+config
+t
+interface ethernet 0/0
+ip address 192.42.7.104 255.255.255.0
+no shutdown
+exit
+exit
+
+==================================
+show ip route
+===================================
+rip configration
+
+config
+t
+router rip
+version 2
+network 192.42.1.101
+network 192.42.2.101
+no auto-summary
+exit
+exit
+
+config
+t
+router rip
+version 2
+network 192.42.4.102
+network 192.42.3.102
+network 192.42.2.102
+no auto-summary
+exit
+exit
+
+config
+t
+router rip
+version 2
+network 192.42.4.103
+network 192.42.5.103
+network 192.42.6.103
+no auto-summary
+exit
+exit
+
+config
+t
+router rip
+version 2
+network 192.42.6.104
+network 192.42.7.104
+no auto-summary
+exit
+exit
+
+==========================================
+copy running-config startup-config
+
+

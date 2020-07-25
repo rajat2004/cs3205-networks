@@ -1,0 +1,148 @@
+load pc config of pc i using load ti-config
+or use the below commands to configure the pcs
+
+P1
+==
+ip 10.42.1.1/24 10.42.1.101
+
+P2
+==
+ip 10.42.3.2/24 10.42.3.102
+
+P3
+==
+ip 10.42.4.3/24 10.42.4.103
+
+P4
+==
+ip 192.42.2.4/24 192.42.2.104
+
+R1
+==
+config
+t
+interface ethernet 0/0
+ip address 10.42.1.101 255.255.255.0
+no shutdown
+exit
+exit
+
+config
+t
+interface ethernet 0/1
+ip address 10.42.2.101 255.255.255.0
+no shutdown
+exit
+exit
+
+config
+t
+router ospf 2
+network 10.42.1.0 0.0.0.255 area 0
+network 10.42.2.0 0.0.0.255 area 0
+exit
+exit
+
+------------------------------
+R2
+==
+config
+t
+interface ethernet 0/0
+ip address 10.42.3.102 255.255.255.0
+no shutdown
+exit
+exit
+
+config
+t
+interface ethernet 0/1
+ip address 10.42.2.102 255.255.255.0
+no shutdown
+exit
+exit
+
+config
+t
+router ospf 2
+network 10.42.3.0 0.0.0.255 area 0
+network 10.42.2.0 0.0.0.255 area 0
+exit
+exit
+
+R3
+==
+config
+t
+interface ethernet 0/0
+ip address 10.42.4.103 255.255.255.0
+no shutdown
+exit
+exit
+
+config
+t
+interface ethernet 0/1
+ip address 10.42.2.103 255.255.255.0
+no shutdown
+exit
+exit
+
+config
+t
+router ospf 2
+network 10.42.4.0 0.0.0.255 area 0
+network 10.42.2.0 0.0.0.255 area 0
+exit
+exit
+
+config
+t
+interface ethernet 0/2
+ip address 192.42.1.103 255.255.255.0
+no shutdown
+exit
+exit
+
+config
+t
+router ospf 2
+network 10.42.4.0 0.0.0.255 area 0
+network 10.42.2.0 0.0.0.255 area 0
+network 192.42.1.0 0.0.0.255 area 100
+exit
+exit
+
+R4
+==
+config
+t
+interface ethernet 0/0
+ip address 192.42.2.104 255.255.255.0
+no shutdown
+exit
+exit
+
+config
+t
+interface ethernet 0/1
+ip address 192.42.1.104 255.255.255.0
+no shutdown
+exit
+exit
+
+config
+t
+router ospf 2
+network 192.42.2.0 0.0.0.255 area 100
+network 192.42.1.0 0.0.0.255 area 100
+exit
+exit
+
+==============================
+show ip ospf neighbor
+
+copy running-config startup-config
+
+show ip ospf database
+
